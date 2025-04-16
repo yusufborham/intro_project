@@ -32,7 +32,7 @@ Required Components:
 
 // LCD
 #define LCD_ADDRESS 0x27
-#define BUZZER_PIN 11
+#define BUZZER_PIN 12
 
 // Bluetooth
 #define BT_RX_PIN 4
@@ -40,17 +40,24 @@ Required Components:
 #define BT_BAUD_RATE 9600
 
 // Servo
-#define SERVO_PIN 12
+#define SERVO_PIN 11
 
 // Motor Driver Pins
-#define LEFT_MOTOR_PIN_FORWARD 3
-#define LEFT_MOTOR_PIN_BACKWARD 5
-#define RIGHT_MOTOR_PIN_FORWARD 6
-#define RIGHT_MOTOR_PIN_BACKWARD 9
+#define LEFT_MOTOR_PIN_FORWARD 6
+#define LEFT_MOTOR_PIN_BACKWARD 9
+#define RIGHT_MOTOR_PIN_FORWARD 3 
+#define RIGHT_MOTOR_PIN_BACKWARD 5 
 
 // Button Pins
 #define BUTTON_MODE_PIN_1 2
 #define BUTTON_MODE_PIN_2 3
+
+// min distance to detect an obstacle
+#define MIN_DISTANCE 30 // cm
+
+#define FORWARD_SPEED 65
+#define ROTATION_SPEED 60 
+#define SPEED_DIF 3
 
 // constatnts 
 unsigned long duration = 0 ; // duration of the ultrasonic pulse
@@ -67,9 +74,8 @@ Servo servoMotor;
 // bluetooth initializing
 SoftwareSerial bluetooth(BT_RX_PIN, BT_TX_PIN); // RX, TX
 
-// function to read data from the ultrasonic sensor 
-
-void readDistance(){
+// function to read data from the ultrasonic sensor and calculate the distance
+void readSensor(){
     digitalWrite (TRIG_PIN,LOW);
     delayMicroseconds(2);
     digitalWrite (TRIG_PIN,HIGH);
@@ -77,8 +83,21 @@ void readDistance(){
     digitalWrite (TRIG_PIN,LOW);
     delayMicroseconds(10);
   
-    durration=pulseIn(ECHO_PIN,HIGH);
-    cm=durration/29/2;
+    duration=pulseIn(ECHO_PIN,HIGH);
+    cm=duration/29/2;
+}
+
+// function to read the distance from the ultrasonic sensor and take the average of 5 readings
+// to avoid noise and get a more accurate value
+void readDistance(){
+    // read 5 times and take the average
+    int sum = 0;
+    for (int i = 0; i < 5; i++) {
+        readSensor(); // Read distance from ultrasonic sensor
+        sum += cm; // Add the distance to the sum
+        delay(50); // Wait for a short time before the next reading
+    }
+    cm = sum / 5; // Calculate the average distance
 }
 
 // 2 wheel motor model 
@@ -97,6 +116,12 @@ void computeMotorForces(int Fx, int Tyaw) {
   // Compute the motor forces based on the input forces
   output_forces[0] = (Fx + Tyaw) / 2; // Left motor force
   output_forces[1] = (Fx - Tyaw) / 2; // Right motor force
+
+  if ( abs(output_forces[0]) > 255 || abs(output_forces[1] > 255)){
+    // Limit the output forces to the range of -255 to 255
+    output_forces[0] *= 255 / max(abs(output_forces[0]), abs(output_forces[1]));
+    output_forces[1] *= 255 / max(abs(output_forces[0]), abs(output_forces[1]));
+  }
 }
 
 void controlMotors(){
@@ -121,14 +146,14 @@ void move(int speed ) { // range for speed is from -255 to 255
   // Move the robot based on the speed value
   // Positive speed for forward, negative for backward, and 0 for stop
   if (speed > 0 ){  // Move forward
-    analogWrite(LEFT_MOTOR_PIN_FORWARD, speed);
-    analogWrite(RIGHT_MOTOR_PIN_FORWARD, speed);
+    analogWrite(LEFT_MOTOR_PIN_FORWARD,  speed  + SPEED_DIF);
+    analogWrite(RIGHT_MOTOR_PIN_FORWARD, speed  - SPEED_DIF);
     digitalWrite(LEFT_MOTOR_PIN_BACKWARD, LOW);
     digitalWrite(RIGHT_MOTOR_PIN_BACKWARD, LOW);
   }
   else if (speed < 0 ){ // Move backward
-    analogWrite(LEFT_MOTOR_PIN_BACKWARD, -speed);
-    analogWrite(RIGHT_MOTOR_PIN_BACKWARD, -speed);
+    analogWrite(LEFT_MOTOR_PIN_BACKWARD,  -speed + SPEED_DIF);
+    analogWrite(RIGHT_MOTOR_PIN_BACKWARD, -speed - SPEED_DIF);
     digitalWrite(LEFT_MOTOR_PIN_FORWARD, LOW);
     digitalWrite(RIGHT_MOTOR_PIN_FORWARD, LOW);
   } else { // Stop
@@ -178,9 +203,12 @@ void changeToMode2() {
 void setup() {
   // Initialize Serial Monitor
   Serial.begin(9600);
+  delay(1000);
+  Serial.println("Hello from arduino ");
   bluetooth.begin(BT_BAUD_RATE);
 
-  // Initialize LCD
+  // Initialize LCD 
+  
   lcd.init();
   lcd.backlight();
   lcd.setCursor(0, 0);
@@ -200,12 +228,13 @@ void setup() {
   pinMode(BUTTON_MODE_PIN_1, INPUT_PULLUP);
   pinMode(BUTTON_MODE_PIN_2, INPUT_PULLUP);
 
-  // Attach interrupt to buttons
+  //Attach interrupt to buttons
   attachInterrupt(digitalPinToInterrupt(BUTTON_MODE_PIN_1), changeToMode1, FALLING);
   attachInterrupt(digitalPinToInterrupt(BUTTON_MODE_PIN_2), changeToMode2, FALLING);
 
   // Initialize Buzzer Pin
   pinMode(BUZZER_PIN, OUTPUT);
+  pinMode(13,OUTPUT);
 
 // Initialize Ultrasonic Sensor
   pinMode(TRIG_PIN, OUTPUT);
@@ -215,51 +244,77 @@ void setup() {
 }
 
 void loop(){
-    if (mode == 0) { // Obstacle avoidance mode
-        servoMotor.write(90); // Set servo to 90 degrees for ultrasonic sensor
-        delay(100); // Wait for servo to stabilize
-        readDistance(); // Read distance from ultrasonic sensor
-        if (cm < 20) { // If an obstacle is detected within 20 cm
-            move(0); // Stop the robot
-            delay(200);
-            digitalWrite(BUZZER_PIN, HIGH); // Turn on buzzer
-            servoMotor.write(20); // Rotate servo to 20 degrees and check is there an obstacle on the right side
-            delay(100); // Wait for servo to stabilize
-            digitalWrite(BUZZER_PIN, LOW); // Turn off buzzer
-            readDistance(); // Read distance from ultrasonic sensor
-            if (cm < 20) { // If an obstacle is detected on the right side
-                digitalWrite(BUZZER_PIN, HIGH); // Turn on buzzer
-                servoMotor.write(160); // Rotate servo to 160 degrees and check is there an obstacle on the left side
-                delay(100); // Wait for servo to stabilize
-                digitalWrite(BUZZER_PIN, LOW); // Turn off buzzer
-                readDistance(); // Read distance from ultrasonic sensor
-                if (cm < 20) { // If an obstacle is detected on the left side and the right side
-                    digitalWrite(BUZZER_PIN, HIGH); // Turn on buzzer
-                    servoMotor.write(90); // Rotate servo to 90 degrees and check is there an obstacle in front of the robot
-                    delay(200);       
-                    rotate(-255); // Rotate to avoid the obstacle
-                    delay(800); // Wait for 0.5 seconds
-                    digitalWrite(BUZZER_PIN,LOW);
-                    move(255); // Move forward again
-                } else { // If no obstacle on the left side rotate to the left 
-                    rotate(-255); // Rotate to avoid the obstacle
-                    delay(500); // Wait for 0.5 seconds
-                    move(255); // Move forward again
+    // Algorithm 
+    // Check the mode and perform actions accordingly
+    // Move Forward 
+    // Rotate Servo to 90 degrees and read distance from ultrasonic sensor
+    // If an obstacle is detected within 20 cm, stop the robot and check for obstacles on the right and left sides
+    // If an obstacle is detected on the right side, rotate to the left
+    // If no obstacle is detected on the right side, rotate to the right
+    // If an obstacle is detected on the left side and the right side rotate 180 degrees to avoid the obstacles
+    // If no obstacle is detected infront of the robot, move forward
+    // If the mode is Bluetooth control, read commands from Bluetooth and control the robot accordingly
+    if (mode == 0) {                                    // Obstacle avoidance mode
+        move(FORWARD_SPEED);
+        servoMotor.write(70);                           // Set servo to 90 degrees for ultrasonic sensor
+        delay(20);                                     // Wait for servo to stabilize
+        readDistance();                                 // Read distance from ultrasonic sensor
+        if (cm < MIN_DISTANCE) {                        // If an obstacle is detected within 20 cm
+
+            move(0);                                    // Stop the robot
+            digitalWrite(BUZZER_PIN, HIGH);             // Turn on buzzer
+            delay(500) ;
+            servoMotor.write(0);                       // Rotate servo to 20 degrees and check is there an obstacle on the right side
+            delay(500);                                 // Wait for servo to stabilize
+            digitalWrite(BUZZER_PIN, LOW);              // Turn off buzzer
+            readDistance();                             // Read distance from ultrasonic sensor
+
+            if (cm < MIN_DISTANCE) {                    // If an obstacle is detected on the right side
+
+                digitalWrite(BUZZER_PIN, HIGH);         // Turn on buzzer
+                servoMotor.write(140);                  // Rotate servo to 160 degrees and check is there an obstacle on the left side
+                delay(500);                             // Wait for servo to stabilize
+                digitalWrite(BUZZER_PIN, LOW);          // Turn off buzzer
+                readDistance();                         // Read distance from ultrasonic sensor
+                if (cm < MIN_DISTANCE) {                // If an obstacle is detected on the left side and the right side
+
+                    digitalWrite(BUZZER_PIN, HIGH);     // Turn on buzzer
+                    digitalWrite(13,HIGH);
+                    servoMotor.write(70);               // Rotate servo to 90 degrees and check is there an obstacle in front of the robot
+                    delay(700);    
+                    digitalWrite(BUZZER_PIN, LOW);      // Turn off buzzer   
+                    rotate(ROTATION_SPEED);             // Rotate to avoid the obstacle
+                    delay(500);                         // Wait for 0.5 seconds
+                    move(0);
+                    delay(500);
+                    digitalWrite(13,LOW);
+                    move(FORWARD_SPEED);                // Move forward again
+
+                } else {                                // If no obstacle on the left side rotate to the left 
+                    rotate(-ROTATION_SPEED);            // Rotate to left avoid the obstacle
+                    delay(1000);                        // Wait for 0.5 seconds
+                    move(0);                            // Stop the robot
+                    delay(500);                         // Wait for 0.2 seconds
+                    move(FORWARD_SPEED);                 // Move forward again
                 }
-            } else { // If no obstacle on the right side rotate to the right
-                rotate(255); // Rotate to avoid the obstacle
-                delay(500); // Wait for 0.5 seconds
-                move(255); // Move forward again
+            } else {                                    // If no obstacle on the right side rotate to the right
+                rotate(ROTATION_SPEED);                 // Rotate to avoid the obstacle
+                delay(600);                             // Wait for 0.5 seconds
+                move(0);
+                delay(500);
+                move(FORWARD_SPEED);                              // Move forward again
             }
             
         } else {
             digitalWrite(BUZZER_PIN, LOW); // Turn off buzzer
-            move(255); // Move forward
+            move(FORWARD_SPEED); // Move forward
         }
+
+
     } else if (mode == 1) { // Bluetooth control mode
         if (bluetooth.available()) {
             char command = bluetooth.read(); // Read command from Bluetooth
-            if (command == 'F') {
+            if (command == 'F'+) {
                 move(255); // Move forward
             } else if (command == 'B') {
                 move(-255); // Move backward
@@ -271,5 +326,6 @@ void loop(){
                 move(0); // Stop the robot
             }
         }
-    }
+    } 
+    
 }
