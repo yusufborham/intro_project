@@ -18,6 +18,34 @@ Required Components:
 ● Buzzer
 */
 
+/* 
+
+1) I2C LCD 
+
+connect vcc to 5v on the breadboard 
+connect GND to GND on nthe breadboard 
+connect SCL To A5 on Arduino 
+Connect SDA ro A4 on Arduino
+
+
+2) Bluetooth Module 
+
+connect VCC to 5v on the breadboard
+connect GND to GND rail on breadboard 
+connect TX from bluetooth module to pin 4 on Arduino 
+connect RX from bluetooth module to pin 5 on Arduino 
+
+3) push buttons 
+
+connect one push button between GND and pin 2
+connect another push button between GND and pin 3
+
+
+
+*/
+
+
+
 #include <Servo.h>
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
@@ -65,7 +93,7 @@ int cm = 0; // distance in cm
 bool mode = 0 ; // 0 for obstacle avoidance, 1 for Bluetooth control
 
 
-// LCD initialzing and objects
+// // LCD initialzing and objects
 LiquidCrystal_I2C lcd(LCD_ADDRESS, 16, 2);
 
 // Servo 
@@ -205,7 +233,7 @@ void setup() {
   Serial.begin(9600);
   delay(1000);
   Serial.println("Hello from arduino ");
-  bluetooth.begin(BT_BAUD_RATE);
+  //bluetooth.begin(BT_BAUD_RATE);
 
   // Initialize LCD 
   
@@ -228,7 +256,7 @@ void setup() {
   pinMode(BUTTON_MODE_PIN_1, INPUT_PULLUP);
   pinMode(BUTTON_MODE_PIN_2, INPUT_PULLUP);
 
-  //Attach interrupt to buttons
+  // //Attach interrupt to buttons
   attachInterrupt(digitalPinToInterrupt(BUTTON_MODE_PIN_1), changeToMode1, FALLING);
   attachInterrupt(digitalPinToInterrupt(BUTTON_MODE_PIN_2), changeToMode2, FALLING);
 
@@ -284,7 +312,7 @@ void loop(){
                     delay(700);    
                     digitalWrite(BUZZER_PIN, LOW);      // Turn off buzzer   
                     rotate(ROTATION_SPEED);             // Rotate to avoid the obstacle
-                    delay(500);                         // Wait for 0.5 seconds
+                    delay(1000);                         // Wait for 0.5 seconds
                     move(0);
                     delay(500);
                     digitalWrite(13,LOW);
@@ -311,18 +339,19 @@ void loop(){
         }
 
 
-    } else if (mode == 1) { // Bluetooth control mode
+     } 
+     else if (mode == 1) { // Bluetooth control mode
         if (bluetooth.available()) {
             char command = bluetooth.read(); // Read command from Bluetooth
-            if (command == 'F'+) {
+            if (command == 'F' || command == 'f') {
                 move(255); // Move forward
-            } else if (command == 'B') {
+            } else if (command == 'B' || command == 'b') {
                 move(-255); // Move backward
-            } else if (command == 'L') {
+            } else if (command == 'L' || command == 'l') {
                 rotate(-255); // Rotate left
-            } else if (command == 'R') {
+            } else if (command == 'R' || command == 'r') {
                 rotate(255); // Rotate right
-            } else if (command == 'S') {
+            } else if (command == 'S' || command == 's') {
                 move(0); // Stop the robot
             }
         }
